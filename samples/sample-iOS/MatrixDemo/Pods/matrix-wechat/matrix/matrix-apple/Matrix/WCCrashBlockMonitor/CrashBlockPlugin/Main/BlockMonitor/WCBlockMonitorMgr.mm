@@ -403,6 +403,7 @@ KSStackCursor *kscrash_pointThreadCallback(void)
     [m_monitorThread start];
 }
 
+//https://github.com/Tencent/matrix/wiki/Matrix-for-iOS-macOS-卡顿监控原理
 - (void)threadProc
 {
     g_matrix_block_monitor_dumping_thread_id = pthread_mach_thread_np(pthread_self());
@@ -418,6 +419,9 @@ KSStackCursor *kscrash_pointThreadCallback(void)
     
     while (YES) {
         @autoreleasepool {
+            
+            NSLog(@"---- 异步线程监测");
+            
             if (g_bMonitor) {
                 EDumpType dumpType = [self check];
                 if (m_bStop) {
@@ -472,13 +476,15 @@ KSStackCursor *kscrash_pointThreadCallback(void)
                     [self resetStatus];
                 }
             }
-
+            
             for (int nCnt = 0; nCnt < m_nIntervalTime && !m_bStop; nCnt++) {
                 if (g_MainThreadHandle && g_bMonitor) {
                     int intervalCount = g_CheckPeriodTime / g_PerStackInterval;
                     if (intervalCount <= 0) {
+                        //不保存堆栈，直接休眠1s
                         usleep(g_CheckPeriodTime);
                     } else {
+                        //每间隔50ms获取一次堆栈信息，休眠50毫秒
                         for (int index = 0; index < intervalCount && !m_bStop; index++) {
                             usleep(g_PerStackInterval);
                             size_t stackBytes = sizeof(uintptr_t) * g_StackMaxCount;
@@ -488,17 +494,23 @@ KSStackCursor *kscrash_pointThreadCallback(void)
                             }
                             __block size_t nSum = 0;
                             memset(stackArray, 0, stackBytes);
+                            
+                            //获取堆栈信息
                             [WCGetMainThreadUtil getCurrentMainThreadStack:^(NSUInteger pc) {
                                 stackArray[nSum] = (uintptr_t) pc;
                                 nSum++;
                             }
                                                             withMaxEntries:g_StackMaxCount
                                                            withThreadCount:g_CurrentThreadCount];
+                            
+                            //保存堆栈信息
                             [m_pointMainThreadHandler addThreadStack:stackArray andStackCount:nSum];
                         }
                     }
+                    NSLog(@"---- for 循环");
                 } else {
                     usleep(g_CheckPeriodTime);
+                    NSLog(@"---- usleep(g_CheckPeriodTime)");
                 }
             }
 
@@ -750,9 +762,11 @@ void myRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity act
 {
     g_runLoopActivity = activity;
     g_runLoopMode = eRunloopDefaultMode;
+    NSString *eventName=@"";
     switch (activity) {
         case kCFRunLoopEntry:
             g_bRun = YES;
+            eventName = @"kCFRunLoopEntry";
             break;
 
         case kCFRunLoopBeforeTimers:
@@ -760,6 +774,7 @@ void myRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity act
                 gettimeofday(&g_tvRun, NULL);
             }
             g_bRun = YES;
+            eventName = @"kCFRunLoopBeforeTimers";
             break;
 
         case kCFRunLoopBeforeSources:
@@ -767,6 +782,7 @@ void myRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity act
                 gettimeofday(&g_tvRun, NULL);
             }
             g_bRun = YES;
+            eventName = @"kCFRunLoopBeforeSources";
             break;
 
         case kCFRunLoopAfterWaiting:
@@ -774,6 +790,7 @@ void myRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity act
                 gettimeofday(&g_tvRun, NULL);
             }
             g_bRun = YES;
+            eventName = @"kCFRunLoopAfterWaiting";
             break;
 
         case kCFRunLoopAllActivities:
@@ -782,20 +799,25 @@ void myRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity act
         default:
             break;
     }
+    
+    NSLog(@"---- myRunLoopBeginCallback %@",eventName);
 }
 
 void myRunLoopEndCallback(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info)
 {
     g_runLoopActivity = activity;
     g_runLoopMode = eRunloopDefaultMode;
+    NSString *eventName=@"";
     switch (activity) {
         case kCFRunLoopBeforeWaiting:
             gettimeofday(&g_tvRun, NULL);
             g_bRun = NO;
+            eventName = @"kCFRunLoopBeforeWaiting";
             break;
 
         case kCFRunLoopExit:
             g_bRun = NO;
+            eventName = @"kCFRunLoopExit";
             break;
 
         case kCFRunLoopAllActivities:
@@ -804,34 +826,40 @@ void myRunLoopEndCallback(CFRunLoopObserverRef observer, CFRunLoopActivity activ
         default:
             break;
     }
+    NSLog(@"---- myRunLoopEndCallback %@",eventName);
 }
 
 void myInitializetionRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info)
 {
     g_runLoopActivity = activity;
     g_runLoopMode = eRunloopInitMode;
+    NSString *eventName=@"";
     switch (activity) {
         case kCFRunLoopEntry:
             g_bRun = YES;
             g_bLaunchOver = NO;
+            eventName = @"kCFRunLoopEntry";
             break;
 
         case kCFRunLoopBeforeTimers:
             gettimeofday(&g_tvRun, NULL);
             g_bRun = YES;
             g_bLaunchOver = NO;
+            eventName = @"kCFRunLoopBeforeTimers";
             break;
 
         case kCFRunLoopBeforeSources:
             gettimeofday(&g_tvRun, NULL);
             g_bRun = YES;
             g_bLaunchOver = NO;
+            eventName = @"kCFRunLoopBeforeSources";
             break;
 
         case kCFRunLoopAfterWaiting:
             gettimeofday(&g_tvRun, NULL);
             g_bRun = YES;
             g_bLaunchOver = NO;
+            eventName = @"kCFRunLoopAfterWaiting";
             break;
 
         case kCFRunLoopAllActivities:
@@ -839,22 +867,26 @@ void myInitializetionRunLoopBeginCallback(CFRunLoopObserverRef observer, CFRunLo
         default:
             break;
     }
+    NSLog(@"---- myInitializetionRunLoopBeginCallback %@",eventName);
 }
 
 void myInitializetionRunLoopEndCallback(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info)
 {
     g_runLoopActivity = activity;
     g_runLoopMode = eRunloopInitMode;
+    NSString *eventName=@"";
     switch (activity) {
         case kCFRunLoopBeforeWaiting:
             gettimeofday(&g_tvRun, NULL);
             g_bRun = NO;
             g_bLaunchOver = YES;
+            eventName = @"kCFRunLoopBeforeWaiting";
             break;
 
         case kCFRunLoopExit:
             g_bRun = NO;
             g_bLaunchOver = YES;
+            eventName = @"kCFRunLoopExit";
             break;
 
         case kCFRunLoopAllActivities:
@@ -863,6 +895,7 @@ void myInitializetionRunLoopEndCallback(CFRunLoopObserverRef observer, CFRunLoop
         default:
             break;
     }
+    NSLog(@"---- myInitializetionRunLoopEndCallback %@",eventName);
 }
 
 // ============================================================================
